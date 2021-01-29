@@ -4,7 +4,8 @@ import * as rds from '@aws-cdk/aws-rds';
 import * as sm from '@aws-cdk/aws-secretsmanager';
 import { SecurityGroup } from '@aws-cdk/aws-ec2';
 import * as s3 from '@aws-cdk/aws-s3';
-import { DH_UNABLE_TO_CHECK_GENERATOR } from 'constants';
+import * as autoscaling from '@aws-cdk/aws-autoscaling';
+import { Duration } from '@aws-cdk/core';
 
 export class BasicServerCdkStack extends cdk.Stack {
   /**
@@ -18,18 +19,22 @@ export class BasicServerCdkStack extends cdk.Stack {
     super(scope, id, props);
 
     /**
-     * Create a VPC with 1 public and 1 private subnet(no NAT) spread across 2 AZs
+     * Create a VPC with 1 public, 1 private(NAT) and 1 isolate subnet each AZ
      */
     const vpc = new ec2.Vpc(this, `${this.stackName}-vpc`, {
       cidr: "10.0.0.0/16",
       enableDnsHostnames: true,
       enableDnsSupport: true,
-      natGateways: 0,
       subnetConfiguration: [
         {
           cidrMask: 24,
-          name: 'application',
+          name: 'load balancer',
           subnetType: ec2.SubnetType.PUBLIC,
+        },
+        {
+          cidrMask: 24,
+          name: 'application',
+          subnetType: ec2.SubnetType.PRIVATE,
         },
         {
           cidrMask: 24,
@@ -39,14 +44,14 @@ export class BasicServerCdkStack extends cdk.Stack {
       ],
     });
     /**
-     * Security Group
+     * App Security Group
      * HTTP/HTTPS Traffics allowed
      * Port 80, 443
      */
     const app_sgs = new ec2.SecurityGroup(this, `${this.stackName}-AppSecurityGroups`,{
       vpc: vpc,
-      description: 'Allow SSH to Application intances',
-      securityGroupName: 'Allow SSH',
+      description: 'Allow serving from instance',
+      securityGroupName: 'Allow serving',
     });
     //Allow Serving (port 80, 443)
     app_sgs.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80),'HTTP allow');
@@ -105,5 +110,20 @@ export class BasicServerCdkStack extends cdk.Stack {
         },
       }),
     });
+
+    /**
+     * Define backend instances
+     * Auto scaling
+     * Application Load Balancer
+     */
+    const auto_scaling_group = new autoscaling.AutoScalingGroup(this, `${this.stackName}-AutoScalingGroups`,{
+      vpc: vpc,
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T2, ec2.InstanceSize.MICRO),
+      machineImage: new ec2.AmazonLinuxImage(),
+      autoScalingGroupName: 'Auto Scale for Application instances',
+      minCapacity: 2,
+      
+    });
+    
   }
 }
