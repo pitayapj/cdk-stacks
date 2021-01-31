@@ -2,10 +2,10 @@ import * as cdk from '@aws-cdk/core';
 import * as ec2 from '@aws-cdk/aws-ec2';
 import * as rds from '@aws-cdk/aws-rds';
 import * as sm from '@aws-cdk/aws-secretsmanager';
-import { SecurityGroup } from '@aws-cdk/aws-ec2';
 import * as s3 from '@aws-cdk/aws-s3';
 import * as autoscaling from '@aws-cdk/aws-autoscaling';
-import { Duration } from '@aws-cdk/core';
+import * as iam from '@aws-cdk/aws-iam';
+import * as lbv2 from '@aws-cdk/aws-elasticloadbalancingv2';
 
 export class BasicServerCdkStack extends cdk.Stack {
   /**
@@ -43,6 +43,15 @@ export class BasicServerCdkStack extends cdk.Stack {
         },
       ],
     });
+
+    /**
+     * Bastion Security Group
+     * SSH allow
+     */
+    const bastison_sgs = new ec2.SecurityGroup(this, `${this.stackName}-BastionSecurityGroups`,{
+      vpc: vpc,
+      description: 'Allow SSH connection to and from Bastison'
+    });
     /**
      * App Security Group
      * HTTP/HTTPS Traffics allowed
@@ -57,8 +66,7 @@ export class BasicServerCdkStack extends cdk.Stack {
     app_sgs.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80),'HTTP allow');
     app_sgs.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443),'HTTPS allow');
     //Allow SSH (22) should be from certain IP
-    //app_sgs.addIngressRule(ec2.Peer.ipv4('10.0.0.1/24'), ec2.Port.tcp(22),'SSH allow from IP');
-    //app_sgs.addIngressRule(ec2.Peer.anyIpv4, ec2.Port.tcp(22),'SSH allow');
+    app_sgs.addIngressRule(bastison_sgs, ec2.Port.tcp(22),'SSH allow from bastion');
 
     /**
      * Security Group
@@ -70,7 +78,7 @@ export class BasicServerCdkStack extends cdk.Stack {
       description: 'Allow database connection',
       securityGroupName: 'Allow database connection',
     });
-    db_sgs.addIngressRule(app_sgs,ec2.Port.tcp(3306),'Database connection allow');
+    db_sgs.addIngressRule(app_sgs, ec2.Port.tcp(3306),'Database connection allow');
 
     /**
      * Retriving Secret
@@ -91,7 +99,7 @@ export class BasicServerCdkStack extends cdk.Stack {
       instanceProps: {
         instanceType: ec2.InstanceType.of(ec2.InstanceClass.BURSTABLE3, ec2.InstanceSize.SMALL),
         vpc: vpc,
-        securityGroups: [SecurityGroup.fromSecurityGroupId(this, 'SG', `${this.stackName}-DbSecurityGroups`, {mutable:false})],
+        securityGroups: [ec2.SecurityGroup.fromSecurityGroupId(this, 'SG', `${this.stackName}-DbSecurityGroups`, {mutable:false})],
         vpcSubnets: {
           subnetType: ec2.SubnetType.ISOLATED,
         },
@@ -116,14 +124,46 @@ export class BasicServerCdkStack extends cdk.Stack {
      * Auto scaling
      * Application Load Balancer
      */
+    const user_data = ec2.UserData.forLinux(
+      {shebang: "#!/bin/bash"}
+    );
+    user_data.addCommands("sudo yum install -y httpd");
+
+    //Role for App Instances
+    const instance_Role = new iam.Role(this,'AppInstanceRole',
+    {
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonEC2RoleforSSM')],
+    });
+
+    //Define ASG
     const auto_scaling_group = new autoscaling.AutoScalingGroup(this, `${this.stackName}-AutoScalingGroups`,{
       vpc: vpc,
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T2, ec2.InstanceSize.MICRO),
-      machineImage: new ec2.AmazonLinuxImage(),
+      machineImage: ec2.MachineImage.latestAmazonLinux(),
       autoScalingGroupName: 'Auto Scale for Application instances',
       minCapacity: 2,
-      
+      maxCapacity: 6,
+      securityGroup: app_sgs,
+      userData: user_data,
+      role: instance_Role,
+      cooldown: cdk.Duration.minutes(10),
+      groupMetrics: [ autoscaling.GroupMetrics.all() ],
+    });
+    auto_scaling_group.scaleOnCpuUtilization('Scale based on CPU', {
+      targetUtilizationPercent: 95,
     });
     
+    //Define Application Load Balancer
+    const load_balancer = new lbv2.ApplicationLoadBalancer(this, `${this.stackName}-AppLoadBalancer`, {
+      vpc: vpc,
+      internetFacing: true,
+      loadBalancerName: `${this.stackName}-AppLoadBalancer`,
+    });
+    const listener = load_balancer.addListener('Listener', {
+      //only port 80 because no SSL certificate yet
+      port: 80
+    });
+    listener.addTargets('Target', {port: 80, targets: [auto_scaling_group]});
   }
 }
