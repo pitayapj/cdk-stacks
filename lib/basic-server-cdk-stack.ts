@@ -52,19 +52,21 @@ export class BasicServerCdkStack extends cdk.Stack {
       vpc: vpc,
       description: 'Allow SSH connection to and from Bastison'
     });
+
+    const bastion_server = new ec2.BastionHostLinux(this,`${this.stackName}-BastionInstance`, {
+      vpc: vpc,
+      instanceName: "Bastion Host",
+      subnetSelection: { subnetType: ec2.SubnetType.PUBLIC }
+    });
     /**
      * App Security Group
-     * HTTP/HTTPS Traffics allowed
-     * Port 80, 443
+     * 
      */
     const app_sgs = new ec2.SecurityGroup(this, `${this.stackName}-AppSecurityGroups`,{
       vpc: vpc,
       description: 'Allow serving from instance',
       securityGroupName: 'Allow serving',
     });
-    //Allow Serving (port 80, 443)
-    app_sgs.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80),'HTTP allow');
-    app_sgs.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443),'HTTPS allow');
     //Allow SSH (22) should be from certain IP
     app_sgs.addIngressRule(bastison_sgs, ec2.Port.tcp(22),'SSH allow from bastion');
 
@@ -133,7 +135,7 @@ export class BasicServerCdkStack extends cdk.Stack {
     const instance_Role = new iam.Role(this,'AppInstanceRole',
     {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-      managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonEC2RoleforSSM')],
+      managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonS3FullAccess')],
     });
 
     //Define ASG
@@ -155,6 +157,13 @@ export class BasicServerCdkStack extends cdk.Stack {
     });
     
     //Define Application Load Balancer
+    const target_group = new lbv2.ApplicationTargetGroup(this, `${this.stackName}-TargetGroup`, {
+      targets: [auto_scaling_group],
+      vpc: vpc,
+      port: 80,
+      stickinessCookieDuration: cdk.Duration.minutes(5),
+      targetGroupName: "Target to Application intances",
+    });
     const load_balancer = new lbv2.ApplicationLoadBalancer(this, `${this.stackName}-AppLoadBalancer`, {
       vpc: vpc,
       internetFacing: true,
@@ -164,6 +173,12 @@ export class BasicServerCdkStack extends cdk.Stack {
       //only port 80 because no SSL certificate yet
       port: 80
     });
-    listener.addTargets('Target', {port: 80, targets: [auto_scaling_group]});
+    listener.addTargetGroups('Target Group', { 
+      targetGroups: [target_group]
+    });
+
+
+
+    //TODO: Change bastion server SG and add EC2-INSTANCE CONNECT
   }
 }
