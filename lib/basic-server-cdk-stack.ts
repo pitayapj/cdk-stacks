@@ -43,10 +43,13 @@ export class BasicServerCdkStack extends cdk.Stack {
         },
       ],
     });
-
+    /**
+     * S3 Bucket for saving file for instances
+     */
+    const file_bucket = new s3.Bucket(this, 'File Bucket', {});
     /**
      * Bastion Security Group
-     * SSH allow
+     * You need to connect to bastion via Session Manager
      */
     const bastison_sgs = new ec2.SecurityGroup(this, `${this.stackName}-BastionSecurityGroups`,{
       vpc: vpc,
@@ -89,8 +92,8 @@ export class BasicServerCdkStack extends cdk.Stack {
      * For example, let call we created rds credential name: root
      * Check secret's ARN in aws console and put it in the below code
      */
-    const secretCompleteArn = 'arn:aws:secretsmanager:ap-northeast-1:123456:secret:sample';
-    const db_credential = sm.Secret.fromSecretPartialArn(this, 'SecretFromPartialArn', secretCompleteArn);
+    const secret_complete_arn = 'arn:aws:secretsmanager:ap-northeast-1:123456:secret:sample';
+    const db_credential = sm.Secret.fromSecretPartialArn(this, 'SecretFromPartialArn', secret_complete_arn);
 
     /**
      * Define Aurora(Mysql Engine) database cluster
@@ -130,12 +133,34 @@ export class BasicServerCdkStack extends cdk.Stack {
       {shebang: "#!/bin/bash"}
     );
     user_data.addCommands("sudo yum install -y httpd");
+    user_data.addCommands("sudo service httpd start");
 
     //Role for App Instances
-    const instance_Role = new iam.Role(this,'AppInstanceRole',
+    const policy_document = {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "S3AccessStatement",
+          "Effect": "Allow",
+          "Action": [
+            "s3:ListBucket",
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject"
+          ],
+          "Resource": [
+            file_bucket.bucketArn,
+            file_bucket.bucketArn + "/*"
+          ],
+        }
+      ]
+    };
+    const inline_policy_document = iam.PolicyDocument.fromJson(policy_document);
+
+    const instance_role = new iam.Role(this,'AppInstanceRole',
     {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-      managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonS3FullAccess')],
+      inlinePolicies: { "ec2-s3-access": inline_policy_document },
     });
 
     //Define ASG
@@ -148,7 +173,7 @@ export class BasicServerCdkStack extends cdk.Stack {
       maxCapacity: 6,
       securityGroup: app_sgs,
       userData: user_data,
-      role: instance_Role,
+      role: instance_role,
       cooldown: cdk.Duration.minutes(10),
       groupMetrics: [ autoscaling.GroupMetrics.all() ],
     });
@@ -177,8 +202,6 @@ export class BasicServerCdkStack extends cdk.Stack {
       targetGroups: [target_group]
     });
 
-
-
-    //TODO: Change bastion server SG and add EC2-INSTANCE CONNECT
+    //TODO: Logging
   }
 }
