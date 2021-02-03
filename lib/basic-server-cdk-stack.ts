@@ -6,6 +6,7 @@ import * as s3 from '@aws-cdk/aws-s3';
 import * as autoscaling from '@aws-cdk/aws-autoscaling';
 import * as iam from '@aws-cdk/aws-iam';
 import * as lbv2 from '@aws-cdk/aws-elasticloadbalancingv2';
+import * as cw from '@aws-cdk/aws-cloudwatch'
 
 export class BasicServerCdkStack extends cdk.Stack {
   /**
@@ -44,17 +45,9 @@ export class BasicServerCdkStack extends cdk.Stack {
       ],
     });
     /**
-     * S3 Bucket for saving file for instances
-     */
-    const file_bucket = new s3.Bucket(this, 'File Bucket', {});
-    /**
      * Bastion Security Group
      * You need to connect to bastion via Session Manager
      */
-    const bastison_sgs = new ec2.SecurityGroup(this, `${this.stackName}-BastionSecurityGroups`,{
-      vpc: vpc,
-      description: 'Allow SSH connection to and from Bastison'
-    });
 
     const bastion_server = new ec2.BastionHostLinux(this,`${this.stackName}-BastionInstance`, {
       vpc: vpc,
@@ -70,8 +63,6 @@ export class BasicServerCdkStack extends cdk.Stack {
       description: 'Allow serving from instance',
       securityGroupName: 'Allow serving',
     });
-    //Allow SSH (22) should be from certain IP
-    app_sgs.addIngressRule(bastison_sgs, ec2.Port.tcp(22),'SSH allow from bastion');
 
     /**
      * Security Group
@@ -99,7 +90,7 @@ export class BasicServerCdkStack extends cdk.Stack {
      * Define Aurora(Mysql Engine) database cluster
      * Multiple AZs enabled and 1 Read Replica create by default
      */
-    const db_cluster = new rds.DatabaseCluster(this, 'dbCluster', {
+    const db_cluster = new rds.DatabaseCluster(this, `${this.stackName}-dbCluster`, {
       engine: rds.DatabaseClusterEngine.AURORA_MYSQL,
       instanceProps: {
         instanceType: ec2.InstanceType.of(ec2.InstanceClass.BURSTABLE3, ec2.InstanceSize.SMALL),
@@ -123,17 +114,24 @@ export class BasicServerCdkStack extends cdk.Stack {
         },
       }),
     });
+    
+    /**
+     * S3 Bucket for saving file for instances
+     */
+    const file_bucket = new s3.Bucket(this, `${this.stackName}-FileBucket`, {});
 
     /**
      * Define backend instances
      * Auto scaling
-     * Application Load Balancer
      */
+    
     const user_data = ec2.UserData.forLinux(
       {shebang: "#!/bin/bash"}
     );
     user_data.addCommands("sudo yum install -y httpd");
     user_data.addCommands("sudo service httpd start");
+    user_data.addCommands("curl https://s3.dualstack.ap-northeast-1.amazonaws.com/aws-xray-assets.ap-northeast-1/xray-daemon/aws-xray-daemon-3.x.rpm -o /home/ec2-user/xray.rpm");
+    user_data.addCommands("yum install -y /home/ec2-user/xray.rpm");
 
     //Role for App Instances
     const policy_document = {
@@ -152,7 +150,7 @@ export class BasicServerCdkStack extends cdk.Stack {
             file_bucket.bucketArn,
             file_bucket.bucketArn + "/*"
           ],
-        }
+        },
       ]
     };
     const inline_policy_document = iam.PolicyDocument.fromJson(policy_document);
@@ -177,11 +175,14 @@ export class BasicServerCdkStack extends cdk.Stack {
       cooldown: cdk.Duration.minutes(10),
       groupMetrics: [ autoscaling.GroupMetrics.all() ],
     });
+
     auto_scaling_group.scaleOnCpuUtilization('Scale based on CPU', {
       targetUtilizationPercent: 95,
     });
     
-    //Define Application Load Balancer
+    /**
+     * Define Application loadbalancer
+     */
     const target_group = new lbv2.ApplicationTargetGroup(this, `${this.stackName}-TargetGroup`, {
       targets: [auto_scaling_group],
       vpc: vpc,
@@ -189,19 +190,35 @@ export class BasicServerCdkStack extends cdk.Stack {
       stickinessCookieDuration: cdk.Duration.minutes(5),
       targetGroupName: "Target to Application intances",
     });
+
     const load_balancer = new lbv2.ApplicationLoadBalancer(this, `${this.stackName}-AppLoadBalancer`, {
       vpc: vpc,
       internetFacing: true,
       loadBalancerName: `${this.stackName}-AppLoadBalancer`,
     });
+
     const listener = load_balancer.addListener('Listener', {
       //only port 80 because no SSL certificate yet
       port: 80
     });
-    listener.addTargetGroups('Target Group', { 
+    listener.addTargetGroups(`${this.stackName}-TargetGroup`, { 
       targetGroups: [target_group]
     });
 
+    /**
+     * Logging
+     */
+    //Report on unhealthy Autoscaling instances
+    const target_metric = load_balancer.metric("HealthyHostCount", {
+      color: "#FF0000",
+      dimensions: { "TargetGroup": "target-group" },
+      period: cdk.Duration.minutes(1),
+    });
+    target_metric.createAlarm(this, `${this.stackName}-UnhealthyTargetAlarm`,{
+      threshold: 1,
+      evaluationPeriods: 60,
+      datapointsToAlarm: 1
+    })
     //TODO: Logging
   }
 }
