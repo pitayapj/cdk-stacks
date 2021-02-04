@@ -32,11 +32,11 @@ export class BasicServerCdkStack extends cdk.Stack {
           name: 'load balancer',
           subnetType: ec2.SubnetType.PUBLIC,
         },
-        {
-          cidrMask: 24,
-          name: 'application',
-          subnetType: ec2.SubnetType.PRIVATE,
-        },
+        // {
+        //   cidrMask: 24,
+        //   name: 'application',
+        //   subnetType: ec2.SubnetType.PRIVATE,
+        // },
         {
           cidrMask: 24,
           name: 'rds',
@@ -219,6 +219,6 @@ export class BasicServerCdkStack extends cdk.Stack {
       evaluationPeriods: 60,
       datapointsToAlarm: 1
     })
-    //TODO: Logging
+    //TODO: Cleaning code
   }
 }
