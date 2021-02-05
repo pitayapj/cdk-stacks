@@ -1,1 +1,2 @@
-CDK Stacks
+CDK Template Stacks
+- Basic server stack
