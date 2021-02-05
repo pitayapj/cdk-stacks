@@ -2,9 +2,7 @@ Basic server architecture
 
 # Welcome to your CDK TypeScript project!
 
-This is a blank project for TypeScript development with CDK.
-
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+![alt text](basic-server-cdk.png)
 
 ## Useful commands
 
