@@ -6,7 +6,6 @@ import * as s3 from '@aws-cdk/aws-s3';
 import * as autoscaling from '@aws-cdk/aws-autoscaling';
 import * as iam from '@aws-cdk/aws-iam';
 import * as lbv2 from '@aws-cdk/aws-elasticloadbalancingv2';
-import * as cw from '@aws-cdk/aws-cloudwatch'
 
 export class BasicServerCdkStack extends cdk.Stack {
   /**
@@ -32,11 +31,11 @@ export class BasicServerCdkStack extends cdk.Stack {
           name: 'load balancer',
           subnetType: ec2.SubnetType.PUBLIC,
         },
-        // {
-        //   cidrMask: 24,
-        //   name: 'application',
-        //   subnetType: ec2.SubnetType.PRIVATE,
-        // },
+        {
+          cidrMask: 24,
+          name: 'application',
+          subnetType: ec2.SubnetType.PRIVATE,
+        },
         {
           cidrMask: 24,
           name: 'rds',
@@ -119,7 +118,14 @@ export class BasicServerCdkStack extends cdk.Stack {
      * S3 Bucket for saving file for instances
      */
     const file_bucket = new s3.Bucket(this, `${this.stackName}-FileBucket`, {});
-
+    const s3_gateway = new ec2.GatewayVpcEndpoint(this, `${this.stackName}-S3Gateway`, {
+      service: new ec2.GatewayVpcEndpointAwsService("S3"),
+      vpc: vpc,
+      subnets:[{
+        onePerAz: true,
+        subnetType: ec2.SubnetType.PRIVATE
+      }]
+    })
     /**
      * Define backend instances
      * Auto scaling
