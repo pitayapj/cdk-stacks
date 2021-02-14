@@ -214,7 +214,7 @@ export class BasicServerCdkStack extends cdk.Stack {
     /**
      * Logging
      */
-    //Report on unhealthy Autoscaling instances
+    //Report on Scale up instances
     const target_metric = load_balancer.metric("HealthyHostCount", {
       color: "#FF0000",
       dimensions: { "TargetGroup": "target-group" },
