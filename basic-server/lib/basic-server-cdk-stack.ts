@@ -136,8 +136,13 @@ export class BasicServerCdkStack extends cdk.Stack {
     );
     user_data.addCommands("sudo yum install -y httpd");
     user_data.addCommands("sudo service httpd start");
+    user_data.addCommands("sudo yum install -y wget");
     user_data.addCommands("curl https://s3.dualstack.ap-northeast-1.amazonaws.com/aws-xray-assets.ap-northeast-1/xray-daemon/aws-xray-daemon-3.x.rpm -o /home/ec2-user/xray.rpm");
     user_data.addCommands("yum install -y /home/ec2-user/xray.rpm");
+    user_data.addCommands("cd /home/ec2-user");
+    user_data.addCommands("wget https://aws-codedeploy-ap-northeast-1.s3.amazonaws.com/latest/install");
+    user_data.addCommands("chmod +x ./install");
+    user_data.addCommands("sudo ./install auto");
 
     //Role for App Instances
     const policy_document = {
