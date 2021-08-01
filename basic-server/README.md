@@ -6,9 +6,12 @@ Basic server architecture
 
 ## Useful commands
 
- * `npm run build`   compile typescript to js
- * `npm run watch`   watch for changes and compile
- * `npm run test`    perform the jest unit tests
- * `cdk deploy`      deploy this stack to your default AWS account/region
- * `cdk diff`        compare deployed stack with current state
- * `cdk synth`       emits the synthesized CloudFormation template
+useful user meta-data
+```
+sudo yum install -y httpd
+sudo yum install -y wget
+cd /home/ec2-user
+wget https://bucket-name.s3.amazonaws.com/latest/install
+chmod +x ./install
+sudo ./install auto
+```
